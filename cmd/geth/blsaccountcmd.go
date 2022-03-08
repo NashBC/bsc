@@ -24,12 +24,11 @@ import (
 	"github.com/prysmaticlabs/prysm/validator/keymanager"
 	"github.com/prysmaticlabs/prysm/validator/keymanager/imported"
 	keystorev4 "github.com/wealdtech/go-eth2-wallet-encryptor-keystorev4"
-
 	"gopkg.in/urfave/cli.v1"
 )
 
 const (
-	BLSWalletPath = "bls/wallet"
+	BLSWalletPath   = "bls/wallet"
 	BLSKeystorePath = "bls/keystore"
 )
 
@@ -199,14 +198,14 @@ func blsWalletCreate(ctx *cli.Context) error {
 	password := utils.GetPassPhrase("Your new BLS wallet will be locked with a password. Please give a password. Do not forget this password.", true)
 	walletConfig := &accounts.CreateWalletConfig{
 		WalletCfg: &wallet.Config{
-			WalletDir: dir,
+			WalletDir:      dir,
 			KeymanagerKind: keymanager.Imported,
 			WalletPassword: password,
 		},
 		SkipMnemonicConfirm: true,
 	}
 
-	_, err =accounts.CreateWalletWithKeymanager(context.Background(), walletConfig)
+	_, err = accounts.CreateWalletWithKeymanager(context.Background(), walletConfig)
 	if err != nil {
 		utils.Fatalf("Create BLS wallet failed: %v.", err)
 	}
@@ -226,7 +225,7 @@ func openOrCreateBLSWallet(ctx *cli.Context, cfg *gethConfig) (*wallet.Wallet, e
 		password := utils.GetPassPhrase("Your new BLS wallet will be locked with a password. Please give a password. Do not forget this password.", true)
 		walletConfig := &accounts.CreateWalletConfig{
 			WalletCfg: &wallet.Config{
-				WalletDir: walletDir,
+				WalletDir:      walletDir,
 				KeymanagerKind: keymanager.Imported,
 				WalletPassword: password,
 			},
@@ -244,7 +243,7 @@ func openOrCreateBLSWallet(ctx *cli.Context, cfg *gethConfig) (*wallet.Wallet, e
 
 	walletPassword := utils.GetPassPhrase("Enter the password for your BLS wallet.", false)
 	w, err = wallet.OpenWallet(context.Background(), &wallet.Config{
-		WalletDir: walletDir,
+		WalletDir:      walletDir,
 		WalletPassword: walletPassword,
 	})
 	if err != nil {
@@ -375,14 +374,14 @@ func blsAccountImport(ctx *cli.Context) error {
 	password := utils.GetPassPhrase("Enter the password for your imported account.", false)
 	fmt.Println("Importing BLS account, this may take a while...")
 	_, err = accounts.ImportAccounts(context.Background(), &accounts.ImportAccountsConfig{
-		Importer: k,
-		Keystores: []*keymanager.Keystore{keystore},
+		Importer:        k,
+		Keystores:       []*keymanager.Keystore{keystore},
 		AccountPassword: password,
 	})
 	if err != nil {
 		utils.Fatalf("Import BLS account failed: %v.", err)
 	}
-	fmt.Printf("Successfully import BLS account.\n")
+	fmt.Println("Successfully import BLS account.")
 	return nil
 }
 
@@ -405,7 +404,7 @@ func blsAccountList(ctx *cli.Context) error {
 
 	walletPassword := utils.GetPassPhrase("Enter the password for your BLS wallet.", false)
 	w, err := wallet.OpenWallet(context.Background(), &wallet.Config{
-		WalletDir: walletDir,
+		WalletDir:      walletDir,
 		WalletPassword: walletPassword,
 	})
 	if err != nil {
@@ -450,7 +449,7 @@ func blsAccountDelete(ctx *cli.Context) error {
 	if len(ctx.Args()) == 0 {
 		utils.Fatalf("No BLS account specified to delete.")
 	}
-	var filteredPubKeys[]bls.PublicKey
+	var filteredPubKeys []bls.PublicKey
 	for _, str := range ctx.Args() {
 		pkString := str
 		if strings.Contains(pkString, "0x") {
@@ -484,7 +483,7 @@ func blsAccountDelete(ctx *cli.Context) error {
 
 	walletPassword := utils.GetPassPhrase("Enter the password for your BLS wallet.", false)
 	w, err := wallet.OpenWallet(context.Background(), &wallet.Config{
-		WalletDir: walletDir,
+		WalletDir:      walletDir,
 		WalletPassword: walletPassword,
 	})
 	if err != nil {
