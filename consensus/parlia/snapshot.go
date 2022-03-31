@@ -171,6 +171,32 @@ func (s *Snapshot) isMajorityFork(forkHash string) bool {
 	return ally > len(s.RecentForkHashes)/2
 }
 
+func (s *Snapshot) updateAttestation(chain consensus.ChainHeaderReader, header *types.Header, chainConfig *params.ChainConfig, parliaConfig *params.ParliaConfig, parents []*types.Header) {
+	if !chainConfig.IsBoneh(header.Number) {
+		return
+	}
+
+	// The attestation should have been checked in verify header, update directly
+	attestation, _ := getVoteAttestationFromHeader(header, chainConfig, parliaConfig)
+	if attestation != nil {
+		s.Attestation = &types.VoteData{
+			TargetNumber: attestation.Data.TargetNumber,
+			TargetHash:   attestation.Data.TargetHash,
+		}
+		return
+	}
+
+	ancient := FindAncientHeader(header, maxForkLength-1, chain, parents)
+	// ancient is nil should never happen.
+	if ancient == nil || (s.Attestation != nil && s.Attestation.TargetNumber >= ancient.Number.Uint64()) {
+		return
+	}
+	s.Attestation = &types.VoteData{
+		TargetNumber: ancient.Number.Uint64(),
+		TargetHash:   ancient.Hash(),
+	}
+}
+
 func (s *Snapshot) apply(headers []*types.Header, chain consensus.ChainHeaderReader, parents []*types.Header, chainConfig *params.ChainConfig) (*Snapshot, error) {
 	// Allow passing in no headers for cleaner code
 	if len(headers) == 0 {
@@ -225,7 +251,7 @@ func (s *Snapshot) apply(headers []*types.Header, chain consensus.ChainHeaderRea
 			}
 
 			// get validators from headers and use that for new validator set
-			newValArr, voteAddrArr, err := ParseValidators(checkpointHeader, chainConfig, s.config)
+			newValArr, voteAddrs, err := ParseValidators(checkpointHeader, chainConfig, s.config)
 			if err != nil {
 				return nil, err
 			}
@@ -235,7 +261,7 @@ func (s *Snapshot) apply(headers []*types.Header, chain consensus.ChainHeaderRea
 					newVals[val] = &ValidatorInfo{}
 				} else {
 					newVals[val] = &ValidatorInfo{
-						VoteAddress: voteAddrArr[idx],
+						VoteAddress: voteAddrs[idx],
 					}
 				}
 			}
@@ -261,6 +287,7 @@ func (s *Snapshot) apply(headers []*types.Header, chain consensus.ChainHeaderRea
 				}
 			}
 		}
+		snap.updateAttestation(chain, header, chainConfig, s.config, parents)
 		snap.RecentForkHashes[number] = hex.EncodeToString(header.Extra[extraVanity-nextForkHashSize : extraVanity])
 	}
 	snap.Number += uint64(len(headers))

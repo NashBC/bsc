@@ -22,6 +22,8 @@ type VoteData struct {
 	TargetHash   common.Hash
 }
 
+func (d *VoteData) Hash() common.Hash { return rlpHash(d) }
+
 type VoteEnvelope struct {
 	VoteAddress BLSPublicKey
 	Signature   BLSSignature
