@@ -98,7 +98,7 @@ const (
 	diffLayerPruneRecheckInterval   = 1 * time.Second // The interval to prune unverified diff layers
 	maxDiffQueueDist                = 2048            // Maximum allowed distance from the chain head to queue diffLayers
 	maxDiffLimit                    = 2048            // Maximum number of unique diff layers a peer may have responded
-	maxDiffForkDist                 = 14              // Maximum allowed backward distance from the chain head
+	maxDiffForkDist                 = 13              // Maximum allowed backward distance from the chain head
 	maxDiffLimitForBroadcast        = 128             // Maximum number of unique diff layers a peer may have broadcasted
 
 	rewindBadBlockInterval = 1 * time.Second

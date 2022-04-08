@@ -329,7 +329,7 @@ func getValidatorBytesFromHeader(header *types.Header, chainConfig *params.Chain
 	}
 
 	if !chainConfig.IsBoneh(header.Number) {
-		if (len(header.Extra)-extraSeal-extraVanity)%validatorBytesLength != 0 {
+		if header.Number.Uint64()%parliaConfig.Epoch == 0 && (len(header.Extra)-extraSeal-extraVanity)%validatorBytesLength != 0 {
 			return nil
 		}
 		return header.Extra[extraVanity : len(header.Extra)-extraSeal]
@@ -416,6 +416,9 @@ func (p *Parlia) verifyVoteAttestation(chain consensus.ChainHeaderReader, header
 	sourceNumber := attestation.Data.SourceNumber
 	sourceHash := attestation.Data.SourceHash
 	justified := p.GetHighestJustifiedHeader(chain, parent)
+	if justified == nil {
+		return fmt.Errorf("no justified block found")
+	}
 	if sourceNumber != justified.Number.Uint64() || sourceHash != justified.Hash() {
 		return fmt.Errorf("invalid attestation, source mismatch, block: %d, source block: %d", number, sourceNumber)
 	}
@@ -426,7 +429,7 @@ func (p *Parlia) verifyVoteAttestation(chain consensus.ChainHeaderReader, header
 	} else {
 		parents = nil
 	}
-	snap, err := p.snapshot(chain, targetNumber-1, parent.ParentHash, parents)
+	snap, err := p.snapshot(chain, parent.Number.Uint64()-1, parent.ParentHash, parents)
 	if err != nil {
 		return err
 	}
@@ -451,7 +454,7 @@ func (p *Parlia) verifyVoteAttestation(chain consensus.ChainHeaderReader, header
 	}
 
 	// The valid voted validators should be no less than 2/3 validators
-	if len(votedAddrs) < len(snap.Validators)*2/3 {
+	if len(votedAddrs) <= len(snap.Validators)*2/3 {
 		return fmt.Errorf("invalid attestation, not enough validators voted")
 	}
 
@@ -790,7 +793,7 @@ func (p *Parlia) PrepareVoteAttestation(chain consensus.ChainHeaderReader, heade
 		return err
 	}
 	votes := p.votePool.FetchVoteByHash(parent.Hash())
-	if len(votes) < len(snap.Validators)*2/3 {
+	if len(votes) <= len(snap.Validators)*2/3 {
 		return nil
 	}
 
@@ -807,6 +810,12 @@ func (p *Parlia) PrepareVoteAttestation(chain consensus.ChainHeaderReader, heade
 			TargetNumber: parent.Number.Uint64(),
 			TargetHash:   parent.Hash(),
 		},
+	}
+	// Check vote data from votes
+	for _, vote := range votes {
+		if vote.Data.Hash() != attestation.Data.Hash() {
+			return fmt.Errorf("vote check error, expected: %v, real: %v", attestation.Data, vote)
+		}
 	}
 	// Prepare aggregated vote signature
 	voteAddrSet := make(map[types.BLSPublicKey]struct{}, len(votes))
@@ -1653,7 +1662,7 @@ func (p *Parlia) GetHighestJustifiedHeader(chain consensus.ChainHeaderReader, he
 		return chain.GetHeaderByNumber(0)
 	}
 
-	parent := chain.GetHeader(header.ParentHash, header.Number.Uint64()-1)
+	parent := chain.GetHeaderByHash(header.ParentHash)
 	if parent == nil {
 		return nil
 	}
@@ -1667,11 +1676,11 @@ func (p *Parlia) GetHighestJustifiedHeader(chain consensus.ChainHeaderReader, he
 		return chain.GetHeaderByNumber(0)
 	}
 	// Return naturally justified block.
-	if parent.Number.Uint64()-snap.Attestation.TargetNumber > naturallyJustifiedDist {
+	if snap.Number-snap.Attestation.TargetNumber > naturallyJustifiedDist {
 		return FindAncientHeader(parent, naturallyJustifiedDist, chain, nil)
 	}
 	//Return latest vote justified block.
-	return chain.GetHeader(snap.Attestation.TargetHash, snap.Attestation.TargetNumber)
+	return chain.GetHeaderByHash(snap.Attestation.TargetHash)
 }
 
 func (p *Parlia) GetHighestFinalizedNumber(chain consensus.ChainHeaderReader, header *types.Header) uint64 {
@@ -1679,7 +1688,7 @@ func (p *Parlia) GetHighestFinalizedNumber(chain consensus.ChainHeaderReader, he
 		return 0
 	}
 
-	parent := chain.GetHeader(header.ParentHash, header.Number.Uint64()-1)
+	parent := chain.GetHeaderByHash(header.ParentHash)
 	if parent == nil {
 		return 0
 	}
