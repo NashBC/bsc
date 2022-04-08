@@ -154,6 +154,8 @@ func (s *Snapshot) copy() *Snapshot {
 	}
 	if s.Attestation != nil {
 		cpy.Attestation = &types.VoteData{
+			SourceNumber: s.Attestation.SourceNumber,
+			SourceHash:   s.Attestation.SourceHash,
 			TargetNumber: s.Attestation.TargetNumber,
 			TargetHash:   s.Attestation.TargetHash,
 		}
@@ -171,29 +173,23 @@ func (s *Snapshot) isMajorityFork(forkHash string) bool {
 	return ally > len(s.RecentForkHashes)/2
 }
 
-func (s *Snapshot) updateAttestation(chain consensus.ChainHeaderReader, header *types.Header, chainConfig *params.ChainConfig, parliaConfig *params.ParliaConfig, parents []*types.Header) {
+func (s *Snapshot) updateAttestation(header *types.Header, chainConfig *params.ChainConfig, parliaConfig *params.ParliaConfig) {
 	if !chainConfig.IsBoneh(header.Number) {
 		return
 	}
 
 	// The attestation should have been checked in verify header, update directly
 	attestation, _ := getVoteAttestationFromHeader(header, chainConfig, parliaConfig)
-	if attestation != nil {
-		s.Attestation = &types.VoteData{
-			TargetNumber: attestation.Data.TargetNumber,
-			TargetHash:   attestation.Data.TargetHash,
-		}
+	if attestation == nil {
 		return
 	}
 
-	ancient := FindAncientHeader(header, maxForkLength-1, chain, parents)
-	// ancient is nil should never happen.
-	if ancient == nil || (s.Attestation != nil && s.Attestation.TargetNumber >= ancient.Number.Uint64()) {
-		return
-	}
+	// Update attestation
 	s.Attestation = &types.VoteData{
-		TargetNumber: ancient.Number.Uint64(),
-		TargetHash:   ancient.Hash(),
+		SourceNumber: attestation.Data.SourceNumber,
+		SourceHash:   attestation.Data.SourceHash,
+		TargetNumber: attestation.Data.TargetNumber,
+		TargetHash:   attestation.Data.TargetHash,
 	}
 }
 
@@ -223,8 +219,8 @@ func (s *Snapshot) apply(headers []*types.Header, chain consensus.ChainHeaderRea
 	for _, header := range headers {
 		number := header.Number.Uint64()
 		// Delete the oldest validator from the recent list to allow it signing again
-		if limit := uint64(len(snap.Validators)/2 + 1); number >= limit {
-			delete(snap.Recents, number-limit)
+		if limit := getSignRecentlyLimit(number, len(snap.Validators), chainConfig); number >= uint64(limit) {
+			delete(snap.Recents, number-uint64(limit))
 		}
 		if limit := uint64(len(snap.Validators)); number >= limit {
 			delete(snap.RecentForkHashes, number-limit)
@@ -265,8 +261,8 @@ func (s *Snapshot) apply(headers []*types.Header, chain consensus.ChainHeaderRea
 					}
 				}
 			}
-			oldLimit := len(snap.Validators)/2 + 1
-			newLimit := len(newVals)/2 + 1
+			oldLimit := getSignRecentlyLimit(number, len(snap.Validators), chainConfig)
+			newLimit := getSignRecentlyLimit(number, len(newVals), chainConfig)
 			if newLimit < oldLimit {
 				for i := 0; i < oldLimit-newLimit; i++ {
 					delete(snap.Recents, number-uint64(newLimit)-uint64(i))
@@ -287,7 +283,7 @@ func (s *Snapshot) apply(headers []*types.Header, chain consensus.ChainHeaderRea
 				}
 			}
 		}
-		snap.updateAttestation(chain, header, chainConfig, s.config, parents)
+		snap.updateAttestation(header, chainConfig, s.config)
 		snap.RecentForkHashes[number] = hex.EncodeToString(header.Extra[extraVanity-nextForkHashSize : extraVanity])
 	}
 	snap.Number += uint64(len(headers))

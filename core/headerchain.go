@@ -217,7 +217,7 @@ func (hc *HeaderChain) writeHeaders(headers []*types.Header) (result *headerWrit
 	// Please refer to http://www.cs.cornell.edu/~ie53/publications/btcProcFC.pdf
 	reorg := newTD.Cmp(localTD) > 0
 	if p, ok := hc.engine.(consensus.PoSA); ok &&
-		p.HighestAttestedNumber(hc, lastHeader) > p.HighestAttestedNumber(hc, hc.CurrentHeader()) {
+		p.GetHighestFinalizedNumber(hc, lastHeader) > p.GetHighestFinalizedNumber(hc, hc.CurrentHeader()) {
 		reorg = true
 	}
 	if !reorg && newTD.Cmp(localTD) == 0 {
@@ -283,13 +283,6 @@ func (hc *HeaderChain) writeHeaders(headers []*types.Header) (result *headerWrit
 		hc.currentHeaderHash = lastHash
 		hc.currentHeader.Store(types.CopyHeader(lastHeader))
 		headHeaderGauge.Update(lastHeader.Number.Int64())
-
-		// Update finality info for parlia consensus engine.
-		if p, ok := hc.engine.(consensus.PoSA); ok {
-			if err := p.UpdateHighestFinalizedBlock(hc, lastHeader); err != nil {
-				log.Crit("Failed to update finality info", "error", err)
-			}
-		}
 
 		// Chain status is canonical since this insert was a reorg.
 		// Note that all inserts which have higher TD than existing are 'reorg'.

@@ -34,7 +34,4 @@ var (
 	// ErrInvalidNumber is returned if a block's number doesn't equal its parent's
 	// plus one.
 	ErrInvalidNumber = errors.New("invalid block number")
-
-	// ErrFinalizedBlock is returned if a block's number smaller than finalized number.
-	ErrFinalizedBlock = errors.New("block has been finalized")
 )

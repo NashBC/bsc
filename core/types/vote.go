@@ -60,9 +60,4 @@ func (v *VoteEnvelope) calcVoteHash() common.Hash {
 	return rlpHash(vote)
 }
 
-// VoteDataHash returns the voteData hash.
-func (v *VoteData) VoteDataHash() common.Hash {
-	return rlpHash(*v)
-}
-
 func (b BLSPublicKey) Bytes() []byte { return b[:] }

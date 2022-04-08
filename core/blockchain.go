@@ -98,7 +98,7 @@ const (
 	diffLayerPruneRecheckInterval   = 1 * time.Second // The interval to prune unverified diff layers
 	maxDiffQueueDist                = 2048            // Maximum allowed distance from the chain head to queue diffLayers
 	maxDiffLimit                    = 2048            // Maximum number of unique diff layers a peer may have responded
-	maxDiffForkDist                 = 11              // Maximum allowed backward distance from the chain head
+	maxDiffForkDist                 = 14              // Maximum allowed backward distance from the chain head
 	maxDiffLimitForBroadcast        = 128             // Maximum number of unique diff layers a peer may have broadcasted
 
 	rewindBadBlockInterval = 1 * time.Second
@@ -1801,7 +1801,7 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	reorg := externTd.Cmp(localTd) > 0
 	currentBlock = bc.CurrentBlock()
 	if p, ok := bc.engine.(consensus.PoSA); ok &&
-		p.HighestAttestedNumber(bc, block.Header()) > p.HighestAttestedNumber(bc, currentBlock.Header()) {
+		p.GetHighestFinalizedNumber(bc, block.Header()) > p.GetHighestFinalizedNumber(bc, currentBlock.Header()) {
 		reorg = true
 	}
 	if !reorg && externTd.Cmp(localTd) == 0 {
@@ -1833,12 +1833,6 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 	// Set new head.
 	if status == CanonStatTy {
 		bc.writeHeadBlock(block)
-		// Update finality info for parlia consensus engine.
-		if p, ok := bc.engine.(consensus.PoSA); ok {
-			if err := p.UpdateHighestFinalizedBlock(bc, block.Header()); err != nil {
-				return NonStatTy, err
-			}
-		}
 	}
 	bc.futureBlocks.Remove(block.Hash())
 
