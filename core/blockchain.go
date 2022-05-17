@@ -198,15 +198,16 @@ type BlockChain struct {
 	txLookupLimit uint64
 	triesInMemory uint64
 
-	hc            *HeaderChain
-	rmLogsFeed    event.Feed
-	chainFeed     event.Feed
-	chainSideFeed event.Feed
-	chainHeadFeed event.Feed
-	logsFeed      event.Feed
-	blockProcFeed event.Feed
-	scope         event.SubscriptionScope
-	genesisBlock  *types.Block
+	hc                  *HeaderChain
+	rmLogsFeed          event.Feed
+	chainFeed           event.Feed
+	chainSideFeed       event.Feed
+	chainHeadFeed       event.Feed
+	logsFeed            event.Feed
+	blockProcFeed       event.Feed
+	finalizedHeaderFeed event.Feed
+	scope               event.SubscriptionScope
+	genesisBlock        *types.Block
 
 	chainmu sync.RWMutex // blockchain insertion lock
 
@@ -544,7 +545,9 @@ func (bc *BlockChain) getJustifiedNumber(header *types.Header) uint64 {
 // getFinalizedNumber returns the highest finalized number before the specific block.
 func (bc *BlockChain) getFinalizedNumber(header *types.Header) uint64 {
 	if p, ok := bc.engine.(consensus.PoSA); ok {
-		return p.GetFinalizedNumber(bc, header)
+		if finalizedHeader := p.GetFinalizedHeader(bc, header); finalizedHeader != nil {
+			return finalizedHeader.Number.Uint64()
+		}
 	}
 
 	return 0
@@ -1886,6 +1889,11 @@ func (bc *BlockChain) writeBlockWithState(block *types.Block, receipts []*types.
 		// event here.
 		if emitHeadEvent {
 			bc.chainHeadFeed.Send(ChainHeadEvent{Block: block})
+			if posa, ok := bc.Engine().(consensus.PoSA); ok {
+				if finalizedHeader := posa.GetFinalizedHeader(bc, block.Header()); finalizedHeader != nil {
+					bc.finalizedHeaderFeed.Send(finalizedHeader)
+				}
+			}
 		}
 	} else {
 		bc.chainSideFeed.Send(ChainSideEvent{Block: block})
@@ -1988,6 +1996,11 @@ func (bc *BlockChain) insertChain(chain types.Blocks, verifySeals bool) (int, er
 	defer func() {
 		if lastCanon != nil && bc.CurrentBlock().Hash() == lastCanon.Hash() {
 			bc.chainHeadFeed.Send(ChainHeadEvent{lastCanon})
+			if posa, ok := bc.Engine().(consensus.PoSA); ok {
+				if finalizedHeader := posa.GetFinalizedHeader(bc, lastCanon.Header()); finalizedHeader != nil {
+					bc.finalizedHeaderFeed.Send(finalizedHeader)
+				}
+			}
 		}
 	}()
 	// Start the parallel header verifier
@@ -3107,6 +3120,11 @@ func (bc *BlockChain) SubscribeChainEvent(ch chan<- ChainEvent) event.Subscripti
 // SubscribeChainHeadEvent registers a subscription of ChainHeadEvent.
 func (bc *BlockChain) SubscribeChainHeadEvent(ch chan<- ChainHeadEvent) event.Subscription {
 	return bc.scope.Track(bc.chainHeadFeed.Subscribe(ch))
+}
+
+// SubscribeFinalizedHeaderEvent registers a subscription of FinalizeHeaderEvent.
+func (bc *BlockChain) SubscribeFinalizedHeaderEvent(ch chan<- FinalizedHeaderEvent) event.Subscription {
+	return bc.scope.Track(bc.finalizedHeaderFeed.Subscribe(ch))
 }
 
 // SubscribeChainSideEvent registers a subscription of ChainSideEvent.
