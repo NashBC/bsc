@@ -14,9 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 )
 
-type (
-	getJustifiedHeaderFunc func(chain consensus.ChainHeaderReader, header *types.Header) *types.Header
-)
+const naturallyJustifiedDist = 15 // The distance to naturally justify a block
 
 // VoteManager will handle the vote produced by self.
 type VoteManager struct {
@@ -33,8 +31,6 @@ type VoteManager struct {
 	journal *VoteJournal
 
 	engine consensus.PoSA
-
-	getJustifiedHeader getJustifiedHeaderFunc
 }
 
 func NewVoteManager(mux *event.TypeMux, chainconfig *params.ChainConfig, chain *core.BlockChain, pool *VotePool, journalPath, blsPasswordPath, blsWalletPath string, engine consensus.PoSA) (*VoteManager, error) {
@@ -47,8 +43,6 @@ func NewVoteManager(mux *event.TypeMux, chainconfig *params.ChainConfig, chain *
 
 		pool:   pool,
 		engine: engine,
-
-		getJustifiedHeader: engine.GetJustifiedHeader,
 	}
 
 	// Create voteSigner.
@@ -130,13 +124,13 @@ func (voteManager *VoteManager) loop() {
 				voteMessage.Data.SourceHash = sourceHash
 
 				if err := voteManager.signer.SignVote(voteMessage); err != nil {
-					log.Debug("Failed to sign vote", "err", err)
+					log.Error("Failed to sign vote", "err", err)
 					votesSigningErrorMetric(vote.TargetNumber, vote.TargetHash).Inc(1)
 					continue
 				}
 				if err := voteManager.journal.WriteVote(voteMessage); err != nil {
-					log.Warn("Failed to write vote into journal", "err", err)
-					votesJournalErrorMetric().Inc(1)
+					log.Error("Failed to write vote into journal", "err", err)
+					voteJournalError.Inc(1)
 					continue
 				}
 
@@ -155,7 +149,7 @@ func (voteManager *VoteManager) loop() {
 // A validator must not vote within the span of its other votes . (Rule 2)
 // Validators always vote for their canonical chain’s latest block. (Rule 3)
 func (voteManager *VoteManager) UnderRules(header *types.Header) (bool, uint64, common.Hash) {
-	justifiedHeader := voteManager.getJustifiedHeader(voteManager.chain, header)
+	justifiedHeader := voteManager.engine.GetJustifiedHeader(voteManager.chain, header)
 	if justifiedHeader == nil {
 		log.Error("highestJustifiedHeader at cur header is nil", "curHeader's BlockNumber", header.Number.Uint64(), "curHeader's BlockHash", header.Hash())
 		return false, 0, common.Hash{}
@@ -165,49 +159,40 @@ func (voteManager *VoteManager) UnderRules(header *types.Header) (bool, uint64, 
 	sourceHash := justifiedHeader.Hash()
 	targetNumber := header.Number.Uint64()
 
-	journal := voteManager.journal
-	walLog := journal.walLog
-
-	firstIndex, err := walLog.FirstIndex()
-	if err != nil {
-		log.Error("Failed to get firstIndex of vote journal", "err", err)
+	voteDataBuffer := voteManager.journal.voteDataBuffer
+	//Rule 1:  A validator must not publish two distinct votes for the same height.
+	if voteDataBuffer.Contains(header.Number.Uint64()) {
 		return false, 0, common.Hash{}
 	}
 
-	lastIndex, err := walLog.LastIndex()
-	if err != nil {
-		log.Error("Failed to get lastIndex of vote journal", "err", err)
-		return false, 0, common.Hash{}
-	}
-
-	for index := lastIndex; index >= firstIndex; index-- {
-		vote, err := journal.ReadVote(index)
-		if err != nil {
-			return false, 0, common.Hash{}
-		}
-		if vote == nil {
-			// Indicate there's no vote in local journal, so it must be under rules.
-			if index == 0 {
-				return true, sourceNumber, sourceHash
+	//Rule 2: A validator must not vote within the span of its other votes.
+	for blockNumber := sourceNumber + 1; blockNumber < targetNumber; blockNumber++ {
+		if voteDataBuffer.Contains(blockNumber) {
+			voteData, ok := voteDataBuffer.Get(blockNumber)
+			if !ok {
+				log.Error("Failed to get voteData info from LRU cache.")
+				continue
 			}
-			log.Error("vote is nil")
-			return false, 0, common.Hash{}
+			if voteData.(*types.VoteData).SourceNumber > sourceNumber {
+				return false, 0, common.Hash{}
+			}
 		}
-
-		if targetNumber == vote.Data.TargetNumber {
-			return false, 0, common.Hash{}
-		}
-
-		if vote.Data.SourceNumber > sourceNumber && vote.Data.TargetNumber < targetNumber {
-			log.Warn("curHeader's vote source and target are within its other votes")
-			return false, 0, common.Hash{}
-		}
-		if vote.Data.SourceNumber < sourceNumber && vote.Data.TargetNumber > targetNumber {
-			log.Warn("Other votes source and target are within curHeader's")
-			return false, 0, common.Hash{}
+	}
+	for blockNumber := targetNumber; blockNumber <= targetNumber+naturallyJustifiedDist; blockNumber++ {
+		if voteDataBuffer.Contains(blockNumber) {
+			voteData, ok := voteDataBuffer.Get(blockNumber)
+			if !ok {
+				log.Error("Failed to get voteData info from LRU cache.")
+				continue
+			}
+			if voteData.(*types.VoteData).SourceNumber < sourceNumber {
+				return false, 0, common.Hash{}
+			}
 		}
 	}
 
+	// Rule 3: Validators always vote for their canonical chain’s latest block.
+	// Since the header subscribed to is the canonical chain, so this rule is satisified by default.
 	return true, sourceNumber, sourceHash
 }
 
